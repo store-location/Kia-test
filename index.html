@@ -387,6 +387,12 @@
       transform: translateX(-2px);
     }
 
+    .store-card.is-selected {
+      border-color: var(--gold-border);
+      background: rgba(245,159,0,0.08);
+      box-shadow: 0 0 0 1px rgba(245,159,0,0.12);
+    }
+
     .store-card:last-child { margin-bottom: 0; }
 
     .store-card-name {
@@ -699,6 +705,11 @@
     .leaflet-control-attribution a {
       color: var(--gold) !important;
     }
+
+    /* Hide on-screen map attribution as requested by the team */
+    .leaflet-control-attribution {
+      display: none !important;
+    }
   </style>
 </head>
 
@@ -818,14 +829,14 @@
     // ─── Map init with dark CartoDB tiles ─────────────────────────
     const map = L.map('map', {
       zoomControl: false,
-      scrollWheelZoom: true
+      scrollWheelZoom: true,
+      attributionControl: false
     }).setView([24.582455338703678, 44.93694905954953], 10);
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
     // Dark map tiles — much better on dark UI than the default OSM light style
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>',
       subdomains: 'abcd',
       maxZoom: 19
     }).addTo(map);
@@ -913,6 +924,34 @@
       window.setTimeout(() => map.invalidateSize(), delay);
     }
 
+    // ─── Welcome popup dismissal helpers ─────────────────────────
+    let welcomePopup = null;
+    let welcomeDismissed = false;
+    let welcomeDismissListenersAttached = false;
+
+    function dismissWelcomeMessage() {
+      welcomeDismissed = true;
+
+      if (welcomePopup && map.hasLayer(welcomePopup)) {
+        map.closePopup(welcomePopup);
+      }
+
+      welcomePopup = null;
+    }
+
+    function armWelcomeAutoDismiss() {
+      if (welcomeDismissListenersAttached) return;
+      welcomeDismissListenersAttached = true;
+
+      ['dragstart', 'zoomstart', 'movestart', 'click'].forEach(eventName => {
+        map.once(eventName, dismissWelcomeMessage);
+      });
+
+      panelEl?.addEventListener('click', dismissWelcomeMessage, { once: true });
+      panelEl?.addEventListener('touchstart', dismissWelcomeMessage, { once: true, passive: true });
+      document.querySelector('.topbar')?.addEventListener('click', dismissWelcomeMessage, { once: true });
+    }
+
     // ─── Toast helpers ────────────────────────────────────────────
     function showToast(message) {
       toastEl.innerHTML = message;
@@ -922,20 +961,8 @@
       showToast._timer = setTimeout(() => toastEl.classList.remove('show'), 2400);
     }
 
-    // Nearest-store result toast — stays longer and has a tappable link.
-    // We can't use window.open() inside a geolocation callback because mobile
-    // browsers block popups opened outside a direct user gesture.
-    function showNearestStoreToast(storeName, distanceKm, directionsUrl) {
-      toastEl.innerHTML = `
-        Nearest: <strong>${storeName}</strong> (~${distanceKm.toFixed(1)} km)
-        <a href="${directionsUrl}" target="_blank" rel="noopener">Open directions ↗</a>
-      `;
-      toastEl.classList.add('show', 'has-link');
-      clearTimeout(showToast._timer);
-      showToast._timer = setTimeout(() => {
-        toastEl.classList.remove('show', 'has-link');
-      }, 8000);
-    }
+    // Nearest-store result is now shown with the marker popup near the store pin.
+    // The actual directions action stays inside the store list card.
 
     // ─── Popup content builder ────────────────────────────────────
     function buildPopupHtml(store, distanceKm = null) {
@@ -947,10 +974,6 @@
         <div>
           <div class="popup-title">${store.name}</div>
           ${distanceHtml}
-          <div class="popup-actions">
-            <a class="popup-link" href="${store.url}" target="_blank" rel="noopener">Open in Maps ↗</a>
-            <a class="popup-link" href="#" data-focus-store="${encodeURIComponent(store.name)}">Focus on map</a>
-          </div>
         </div>
       `;
     }
@@ -965,20 +988,6 @@
       const marker = L.marker(latlng, { icon: goldPinIcon });
       marker.bindPopup(buildPopupHtml(store));
 
-      marker.on('popupopen', (e) => {
-        const popupNode = e.popup.getElement();
-        if (!popupNode) return;
-
-        const focusLink = popupNode.querySelector('[data-focus-store]');
-        if (focusLink) {
-          focusLink.onclick = (ev) => {
-            ev.preventDefault();
-            const storeName = decodeURIComponent(focusLink.getAttribute('data-focus-store'));
-            focusStoreOnMap(storeName);
-          };
-        }
-      });
-
       markerByStoreName.set(store.name, marker);
       markerCluster.addLayer(marker);
     });
@@ -987,20 +996,14 @@
     // Initial fit happens after the mobile sheet state is applied.
 
     // ─── Store list renderer ──────────────────────────────────────
-    // Extracts the area name from the full store name for the badge.
-    // "UNION COOP MOTOR CITY" → "MOTOR CITY"
-    function extractAreaName(fullStoreName) {
-      return fullStoreName.replace(/^KIA\s*/i, '').trim();
-    }
-
     function renderStoreList(storeSubset) {
       storeListEl.innerHTML = '';
       storeCountEl.textContent = `${storeSubset.length} location${storeSubset.length === 1 ? '' : 's'}`;
 
       storeSubset.forEach((store, index) => {
-        const areaName = extractAreaName(store.name);
         const cardEl = document.createElement('div');
         cardEl.className = 'store-card';
+        cardEl.dataset.storeName = store.name;
         // Stagger the entrance animation so cards cascade in one by one
         cardEl.style.animationDelay = `${index * 35}ms`;
 
@@ -1014,7 +1017,6 @@
                title="Open in Google Maps">
               ↗ Directions
             </a>
-            <span class="area-tag">${areaName}</span>
           </div>
         `;
 
@@ -1029,11 +1031,48 @@
       });
     }
 
+    function setViewWithOffset(latlng, zoom, offset) {
+      const targetPoint = map.project(latlng, zoom).subtract(L.point(offset));
+      const targetLatLng = map.unproject(targetPoint, zoom);
+      map.setView(targetLatLng, zoom, { animate: true });
+    }
+
     function focusStoreOnMap(storeName) {
+      dismissWelcomeMessage();
+
       const marker = markerByStoreName.get(storeName);
       if (!marker) return;
-      map.setView(marker.getLatLng(), 14, { animate: true });
-      marker.openPopup();
+
+      const latlng = marker.getLatLng();
+      const panelOpen = panelEl && panelEl.style.display !== 'none' && !panelEl.classList.contains('is-collapsed');
+
+      if (isMobileView() && panelOpen) {
+        const panelH = Math.ceil(panelEl.getBoundingClientRect().height) || 260;
+        const verticalOffset = -Math.min(180, Math.max(90, panelH * 0.34));
+        setViewWithOffset(latlng, 14, [0, verticalOffset]);
+        window.setTimeout(() => marker.openPopup(), 260);
+      } else {
+        map.setView(latlng, 14, { animate: true });
+        window.setTimeout(() => marker.openPopup(), isMobileView() ? 220 : 120);
+      }
+
+      highlightStoreCard(storeName);
+    }
+
+    function highlightStoreCard(storeName) {
+      storeListEl.querySelectorAll('.store-card.is-selected').forEach(card => {
+        card.classList.remove('is-selected');
+      });
+
+      const card = Array.from(storeListEl.querySelectorAll('.store-card'))
+        .find(item => item.dataset.storeName === storeName);
+      if (!card) return;
+
+      card.classList.add('is-selected');
+
+      if (!panelEl.classList.contains('is-collapsed')) {
+        card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
     }
 
     renderStoreList(stores);
@@ -1055,22 +1094,28 @@
 
     // Topbar and panel search inputs stay in sync
     topbarSearchEl?.addEventListener('input', () => {
+      dismissWelcomeMessage();
       if (panelSearchEl) panelSearchEl.value = topbarSearchEl.value;
       applySearch(topbarSearchEl.value);
     });
 
     panelSearchEl?.addEventListener('input', () => {
+      dismissWelcomeMessage();
       if (topbarSearchEl) topbarSearchEl.value = panelSearchEl.value;
       applySearch(panelSearchEl.value);
     });
 
     // ─── Geolocation helpers ──────────────────────────────────────
-    function requestUserLocation(onSuccess) {
+    function requestUserLocation(onSuccess, options = {}) {
       if (!navigator.geolocation) {
         showToast('Geolocation not supported in this browser.');
         return;
       }
-      showToast('Getting your location…');
+
+      if (!options.silent) {
+        showToast('Getting your location…');
+      }
+
       navigator.geolocation.getCurrentPosition(
         onSuccess,
         (err) => showToast('Location error: ' + (err.message || 'unknown')),
@@ -1129,6 +1174,7 @@
 
     // ─── Button: Locate me ────────────────────────────────────────
     document.getElementById('btnLocate').addEventListener('click', () => {
+      dismissWelcomeMessage();
       requestUserLocation((pos) => {
         placeUserLocationMarker(pos.coords.latitude, pos.coords.longitude);
         showToast('Location updated.');
@@ -1136,9 +1182,8 @@
     });
 
     // ─── Button: Find nearest ─────────────────────────────────────
-    // No window.open() here — mobile browsers block popups from async callbacks.
-    // Instead, we surface a tappable link in the toast.
     document.getElementById('btnNearest').addEventListener('click', () => {
+      dismissWelcomeMessage();
       requestUserLocation((pos) => {
         const { latitude, longitude } = pos.coords;
         placeUserLocationMarker(latitude, longitude);
@@ -1152,8 +1197,7 @@
           focusStoreOnMap(store.name);
         }
 
-        showNearestStoreToast(store.name, distanceKm, store.url);
-      });
+      }, { silent: true });
     });
 
     // ─── Panel collapse / expand ──────────────────────────────────
@@ -1184,22 +1228,26 @@
     window.setTimeout(() => fitStoresView(false), 180);
 
     btnCollapseEl?.addEventListener('click', () => {
+      dismissWelcomeMessage();
       setCollapsedState(!panelEl.classList.contains('is-collapsed'));
     });
 
     grabHandleEl?.addEventListener('click', () => {
+      dismissWelcomeMessage();
       setCollapsedState(!panelEl.classList.contains('is-collapsed'));
     });
 
     grabHandleEl?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
+        dismissWelcomeMessage();
         setCollapsedState(!panelEl.classList.contains('is-collapsed'));
       }
     });
 
     // ─── Button: Toggle panel ─────────────────────────────────────
     document.getElementById('btnTogglePanel').addEventListener('click', () => {
+      dismissWelcomeMessage();
       const isHidden = panelEl.style.display === 'none';
       panelEl.style.display = isHidden ? '' : 'none';
       window.setTimeout(() => fitStoresView(true), 120);
@@ -1207,11 +1255,13 @@
 
     // ─── Button: Fit all stores in view ──────────────────────────
     document.getElementById('btnFit').addEventListener('click', () => {
+      dismissWelcomeMessage();
       fitStoresView(true);
     });
 
     // ─── Button: Reset ────────────────────────────────────────────
     document.getElementById('btnReset').addEventListener('click', () => {
+      dismissWelcomeMessage();
       if (topbarSearchEl) topbarSearchEl.value = '';
       if (panelSearchEl)  panelSearchEl.value  = '';
       renderStoreList(stores);
@@ -1221,12 +1271,14 @@
 
     // ─── Welcome message ─────────────────────────────────────────
     function showWelcomeMessage() {
+      if (welcomeDismissed) return;
+
       const center = allStoresBounds.getCenter();
       const popupOptions = isMobileView()
         ? { closeButton: true, autoClose: true, autoPan: true, keepInView: true, maxWidth: 260, autoPanPaddingTopLeft: [16, 90], autoPanPaddingBottomRight: [16, 130] }
         : { closeButton: true, autoClose: true, autoPan: true, keepInView: true, maxWidth: 280 };
 
-      L.popup(popupOptions)
+      welcomePopup = L.popup(popupOptions)
         .setLatLng(center)
         .setContent(`
           <div style="max-width:${isMobileView() ? '220px' : '240px'};">
@@ -1236,8 +1288,10 @@
               store, or browse the list and tap a card.
             </div>
           </div>
-        `)
-        .openOn(map);
+        `);
+
+      welcomePopup.openOn(map);
+      window.setTimeout(armWelcomeAutoDismiss, 250);
     }
 
     window.setTimeout(showWelcomeMessage, 350);
