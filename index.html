@@ -1,0 +1,1155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Kia | Showroom Locator</title>
+
+  <!-- Fonts: Syne (geometric display) + Figtree (clean body) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"/>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
+
+  <style>
+    /* ─── Design tokens ───────────────────────────────────────────
+       Aesthetic: Dark command-center meets premium retail wayfinding.
+       Deep navy-black base with warm amber gold as the accent. */
+    :root {
+      --bg:           #09090f;
+      --surface:      #111420;
+      --surface-raised: #181c2c;
+      --border:       rgba(255,255,255,0.07);
+      --border-hover: rgba(255,255,255,0.14);
+      --text:         #edeef5;
+      --text-soft:    #8890a8;
+      --gold:         #f59f00;
+      --gold-dim:     rgba(245,159,0,0.15);
+      --gold-border:  rgba(245,159,0,0.30);
+      --shadow-lg:    0 20px 60px rgba(0,0,0,0.60);
+      --shadow-md:    0 8px 24px rgba(0,0,0,0.40);
+      --shadow-sm:    0 2px 10px rgba(0,0,0,0.30);
+      --radius-lg:    18px;
+      --radius-md:    12px;
+      --radius-sm:    8px;
+      /* Set by JS — fixes mobile browser chrome height */
+      --vh:           1vh;
+      --topbarH:      64px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      height: 100%;
+      margin: 0;
+    }
+
+    body {
+      background: var(--bg);
+      overflow: hidden;
+      height: calc(var(--vh) * 100);
+      font-family: 'Figtree', system-ui, sans-serif;
+      color: var(--text);
+    }
+
+    /* ─── App shell ────────────────────────────────────────────── */
+    .app {
+      height: calc(var(--vh) * 100);
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    /* ─── Top bar ──────────────────────────────────────────────── */
+    .topbar {
+      /* Safe-area inset folded into padding shorthand (iOS notch fix) */
+      padding: calc(12px + env(safe-area-inset-top)) 16px 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      background: rgba(9,9,15,0.85);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      position: relative;
+      z-index: 1000;
+    }
+
+    /* ─── Brand ────────────────────────────────────────────────── */
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .logo-wrapper {
+      width: 40px;
+      height: 40px;
+      border-radius: var(--radius-sm);
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+
+    .logo {
+      width: 28px;
+      height: auto;
+      display: block;
+    }
+
+    .brand-title {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.1;
+      min-width: 0;
+    }
+
+    .brand-name {
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      font-size: 15px;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .brand-sub {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-soft);
+      margin-top: 2px;
+    }
+
+    .brand-full { display: inline; }
+    .brand-short { display: none; }
+
+    /* ─── Topbar search (desktop) ──────────────────────────────── */
+    .topbar-search {
+      width: min(340px, 38vw);
+      position: relative;
+      flex-shrink: 1;
+    }
+
+    .topbar-search input {
+      width: 100%;
+      padding: 10px 14px 10px 38px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border);
+      outline: none;
+      background: var(--surface);
+      color: var(--text);
+      font-size: 13px;
+      font-family: inherit;
+      transition: border-color .15s, box-shadow .15s;
+    }
+
+    .topbar-search input::placeholder { color: var(--text-soft); }
+
+    .topbar-search input:focus {
+      border-color: var(--gold-border);
+      box-shadow: 0 0 0 3px rgba(245,159,0,0.12);
+    }
+
+    .search-icon {
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-soft);
+      font-size: 13px;
+      pointer-events: none;
+    }
+
+    /* ─── Topbar action buttons ────────────────────────────────── */
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .btn {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      padding: 9px 14px;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 13px;
+      font-family: inherit;
+      box-shadow: var(--shadow-sm);
+      transition: transform .12s ease, border-color .12s ease, background .12s ease;
+      user-select: none;
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+      border-color: var(--border-hover);
+      background: var(--surface-raised);
+    }
+
+    .btn:active { transform: translateY(0); }
+
+    /* Gold primary button */
+    .btn-primary {
+      background: var(--gold);
+      border-color: var(--gold);
+      color: #09090f;
+    }
+
+    .btn-primary:hover {
+      background: #e08e00;
+      border-color: #e08e00;
+    }
+
+    .btn-icon {
+      width: 38px;
+      height: 38px;
+      padding: 0;
+      justify-content: center;
+    }
+
+    /* ─── Content area ─────────────────────────────────────────── */
+    .content {
+      min-height: 0;
+      height: calc((var(--vh) * 100) - var(--topbarH));
+      position: relative;
+    }
+
+    /* ─── Map ──────────────────────────────────────────────────── */
+    #map {
+      height: 100%;
+      width: 100%;
+      min-height: 0;
+      font-family: inherit;
+    }
+
+    /* ─── Custom store pin marker ──────────────────────────────── */
+    .store-pin-dot {
+      width: 14px;
+      height: 14px;
+      background: var(--gold);
+      border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.9);
+      /* Pulsing ring animation to make pins feel alive on the dark map */
+      animation: pin-pulse 2.4s ease-in-out infinite;
+    }
+
+    @keyframes pin-pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(245,159,0,0.7); }
+      60%  { box-shadow: 0 0 0 8px rgba(245,159,0,0); }
+      100% { box-shadow: 0 0 0 0 rgba(245,159,0,0); }
+    }
+
+    /* ─── Side panel ───────────────────────────────────────────── */
+    .panel {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      width: 370px;
+      max-width: calc(100vw - 28px);
+      max-height: calc(100% - 28px);
+      background: rgba(17,20,32,0.92);
+      backdrop-filter: blur(20px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
+      overflow: hidden;
+      z-index: 900;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+    }
+
+    /* ─── Panel header ─────────────────────────────────────────── */
+    .panel-header {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .panel-header-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .panel-title-group {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .panel-title {
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      font-size: 15px;
+      color: var(--text);
+    }
+
+    .panel-subtitle {
+      font-size: 12px;
+      color: var(--text-soft);
+    }
+
+    /* Gold accent line on the panel header for visual hierarchy */
+    .panel-header::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 20px;
+      right: 20px;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--gold), transparent);
+      opacity: 0.5;
+      border-radius: 0 0 2px 2px;
+      pointer-events: none;
+    }
+
+    .panel { position: absolute; } /* re-declare so ::before context works */
+
+    /* Search inside the panel (desktop always visible, mobile too) */
+    .panel-search {
+      position: relative;
+    }
+
+    .panel-search input {
+      width: 100%;
+      padding: 9px 14px 9px 36px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      outline: none;
+      background: var(--surface-raised);
+      color: var(--text);
+      font-size: 13px;
+      font-family: inherit;
+      transition: border-color .15s, box-shadow .15s;
+    }
+
+    .panel-search input::placeholder { color: var(--text-soft); }
+
+    .panel-search input:focus {
+      border-color: var(--gold-border);
+      box-shadow: 0 0 0 3px rgba(245,159,0,0.10);
+    }
+
+    .panel-search .search-icon {
+      left: 10px;
+      font-size: 12px;
+    }
+
+    /* ─── Store list ───────────────────────────────────────────── */
+    .panel-body {
+      overflow: auto;
+      padding: 10px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+
+    /* Store card entrance animation (JS adds this class + animation-delay) */
+    @keyframes card-enter {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .store-card {
+      padding: 12px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border);
+      background: var(--surface-raised);
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: border-color .15s ease, background .15s ease, transform .12s ease;
+      /* Cards start invisible — the animation class fills them in */
+      opacity: 0;
+      animation: card-enter 0.3s ease forwards;
+    }
+
+    .store-card:hover {
+      border-color: var(--gold-border);
+      background: rgba(245,159,0,0.05);
+      transform: translateX(-2px);
+    }
+
+    .store-card:last-child { margin-bottom: 0; }
+
+    .store-card-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 8px;
+      display: block;
+    }
+
+    .store-card-meta {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    /* Area name badge */
+    .area-tag {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-soft);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 3px 8px;
+      border-radius: 999px;
+    }
+
+    /* Directions link — styled as a small gold pill */
+    .directions-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: var(--gold-dim);
+      border: 1px solid var(--gold-border);
+      color: var(--gold);
+      font-weight: 700;
+      font-size: 11px;
+      text-decoration: none;
+      transition: background .12s, border-color .12s;
+    }
+
+    .directions-link:hover {
+      background: rgba(245,159,0,0.25);
+    }
+
+    /* ─── Panel footer ─────────────────────────────────────────── */
+    .panel-footer {
+      padding: 10px 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 10px;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .hint {
+      font-size: 11px;
+      color: var(--text-soft);
+    }
+
+    /* ─── Grab handle (mobile) ─────────────────────────────────── */
+    .grab-handle {
+      width: 44px;
+      height: 4px;
+      border-radius: 999px;
+      background: var(--border-hover);
+      margin: 0 auto;
+      display: none;
+      cursor: pointer;
+    }
+
+    /* ─── Panel collapsed state ────────────────────────────────── */
+    .panel.is-collapsed {
+      height: 78px;
+      max-height: 78px;
+    }
+
+    .panel.is-collapsed .panel-body,
+    .panel.is-collapsed .panel-footer,
+    .panel.is-collapsed .panel-search,
+    .panel.is-collapsed .hint {
+      display: none;
+    }
+
+    /* ─── Leaflet overrides: dark popup ────────────────────────── */
+    .leaflet-popup-content-wrapper {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: var(--shadow-md);
+      color: var(--text);
+    }
+
+    .leaflet-popup-tip {
+      background: var(--surface);
+    }
+
+    .leaflet-popup-content {
+      margin: 12px 14px;
+      color: var(--text);
+    }
+
+    .leaflet-popup-close-button {
+      color: var(--text-soft) !important;
+      font-size: 18px !important;
+    }
+
+    .leaflet-popup-close-button:hover {
+      color: var(--text) !important;
+    }
+
+    /* Dark cluster markers */
+    .leaflet-marker-icon.marker-cluster div {
+      background: var(--surface-raised);
+      color: var(--gold);
+      font-family: 'Figtree', sans-serif;
+      font-weight: 700;
+    }
+
+    .marker-cluster-small,
+    .marker-cluster-medium,
+    .marker-cluster-large {
+      background: rgba(245,159,0,0.15);
+    }
+
+    .marker-cluster-small div,
+    .marker-cluster-medium div,
+    .marker-cluster-large div {
+      background: rgba(245,159,0,0.25);
+      color: var(--gold);
+    }
+
+    /* ─── Popup content styles ─────────────────────────────────── */
+    .popup-title {
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      font-size: 14px;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+
+    .popup-distance {
+      color: var(--text-soft);
+      font-size: 12px;
+      margin-bottom: 10px;
+    }
+
+    .popup-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .popup-link {
+      color: var(--gold);
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 12px;
+    }
+
+    .popup-link:hover { text-decoration: underline; }
+
+    /* ─── Toast ────────────────────────────────────────────────── */
+    .toast {
+      position: absolute;
+      left: 50%;
+      top: 14px;
+      transform: translateX(-50%) translateY(-10px);
+      background: rgba(17,20,32,0.96);
+      color: var(--text);
+      padding: 10px 16px;
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-md);
+      z-index: 1100;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s ease, transform .2s ease;
+      max-width: calc(100vw - 40px);
+      white-space: nowrap;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* Nearest-store toast needs pointer-events for the tappable link */
+    .toast.has-link {
+      pointer-events: auto;
+      white-space: normal;
+      text-align: center;
+    }
+
+    .toast a {
+      color: var(--gold);
+      font-weight: 700;
+      text-decoration: underline;
+      margin-left: 6px;
+    }
+
+    /* ─── Mobile breakpoint ────────────────────────────────────── */
+    @media (max-width: 760px) {
+      .leaflet-control-attribution {
+        background: rgba(9,9,15,0.8) !important;
+        color: var(--text-soft) !important;
+        margin-bottom: calc(8px + env(safe-area-inset-bottom));
+      }
+
+      .brand-full { display: none; }
+      .brand-short { display: inline; }
+      .brand-sub { display: none; }
+      .brand-name { font-size: 14px; }
+
+      .topbar { gap: 8px; }
+      .logo-wrapper { width: 34px; height: 34px; }
+      .logo { width: 22px; }
+
+      /* Topbar search hides on mobile — it's in the panel header now */
+      .topbar-search { display: none; }
+
+      .actions { gap: 6px; }
+      .btn { padding: 8px 10px; font-size: 12px; }
+      .btn-icon { width: 36px; height: 36px; }
+
+      @media (max-width: 420px) {
+        .btn-label { display: none; }
+      }
+
+      .leaflet-top.leaflet-left {
+        top: calc(var(--topbarH) + 10px);
+      }
+
+      /* Bottom sheet */
+      .panel {
+        left: 50%;
+        transform: translateX(-50%);
+        right: auto;
+        top: auto;
+        bottom: calc(10px + env(safe-area-inset-bottom));
+        width: min(430px, calc(100vw - 20px));
+        height: clamp(260px, 46vh, 420px);
+        max-height: 56vh;
+        border-radius: 20px;
+      }
+
+      .panel.is-collapsed {
+        height: 78px;
+        max-height: 78px;
+      }
+
+      .grab-handle { display: block; }
+      .panel-header { padding: 12px 14px; }
+      .panel-footer { padding: 10px 14px; }
+    }
+
+    /* ─── Leaflet dark zoom controls ───────────────────────────── */
+    .leaflet-bar a {
+      background: var(--surface) !important;
+      color: var(--text) !important;
+      border-color: var(--border) !important;
+    }
+
+    .leaflet-bar a:hover {
+      background: var(--surface-raised) !important;
+    }
+
+    /* ─── Attribution dark ─────────────────────────────────────── */
+    .leaflet-control-attribution {
+      background: rgba(9,9,15,0.75) !important;
+      color: var(--text-soft) !important;
+      border-radius: 6px 0 0 0;
+    }
+
+    .leaflet-control-attribution a {
+      color: var(--gold) !important;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app">
+
+    <!-- ─── Top bar ─────────────────────────────────────────── -->
+    <div class="topbar">
+      <div class="brand">
+        <div class="logo-wrapper">
+          <img
+            src="https://i.ibb.co/VcgDTC16/kia-new-2021-seeklogo.png"
+            alt="Kia logo"
+            class="logo"
+          />
+        </div>
+        <div class="brand-title">
+          <span class="brand-name">
+            <span class="brand-full">Kia – Showroom Locator</span>
+            <span class="brand-short">Kia</span>
+          </span>
+          <span class="brand-sub">Find the nearest showroom</span>
+        </div>
+      </div>
+
+      <!-- Desktop-only topbar search -->
+      <div class="topbar-search">
+        <span class="search-icon">⌕</span>
+        <input id="topbarSearch" type="text" placeholder="Search by name or area…"/>
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-icon" id="btnTogglePanel" title="Toggle store list">☰</button>
+        <button class="btn" id="btnLocate" title="Center map on your location">
+          ◎ <span class="btn-label">Locate</span>
+        </button>
+        <button class="btn btn-primary" id="btnNearest" title="Find nearest store">
+          ↗ <span class="btn-label">Nearest</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ─── Map + panel ─────────────────────────────────────── -->
+    <div class="content">
+      <div id="map"></div>
+
+      <div class="panel" id="panel">
+
+        <!-- Mobile grab handle — NOT aria-hidden (it's a real button) -->
+        <div
+          class="grab-handle"
+          id="grabHandle"
+          role="button"
+          tabindex="0"
+          aria-label="Expand or collapse store list"
+        ></div>
+
+        <div class="panel-header">
+          <div class="panel-header-top">
+            <div class="panel-title-group">
+              <span class="panel-title">Stores</span>
+              <span class="panel-subtitle" id="storeCount">Loading…</span>
+            </div>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <button class="btn btn-icon" id="btnCollapse" title="Collapse or expand">▾</button>
+              <button class="btn btn-icon" id="btnFit" title="Zoom to show all stores">⊡</button>
+            </div>
+          </div>
+
+          <!-- Search lives here — visible on all screen sizes -->
+          <div class="panel-search">
+            <span class="search-icon">⌕</span>
+            <input id="panelSearch" type="text" placeholder="Search stores…"/>
+          </div>
+        </div>
+
+        <div class="panel-body" id="storeList"></div>
+
+        <div class="panel-footer">
+          <span class="hint">Tap a card to zoom in. Use the pill for directions.</span>
+          <button class="btn" id="btnReset">Reset</button>
+        </div>
+      </div>
+
+      <div class="toast" id="toast"></div>
+    </div>
+
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+  <script>
+    // ─── Store data ───────────────────────────────────────────────
+    // All URLs standardized to coordinate format (was one short goo.gl link before)
+    const stores = [
+  { name: "Kia, Al Ahsa, Al Hofuf", lat: 25.342250189207274, lng: 49.617951214367615, url: "https://maps.app.goo.gl/SyuBFXemB7Zf74sd8" },
+  { name: "Kia, Al Ahsa, Al Mubarraz", lat: 25.435648874180885, lng: 49.571512127706065, url: "https://maps.app.goo.gl/Gwnev2L9iob8TNET9" },
+  { name: "Kia, Dammam, Bader", lat: 26.41911033457077, lng: 50.02132767705055, url: "https://maps.app.goo.gl/L2X3bF2WoHfM4gTr7" },
+  { name: "Kia, Dammam, Al Khalidiyyah Al Janubiyyah", lat: 26.387912142556175, lng: 50.159889769624264, url: "https://maps.app.goo.gl/yxgJpadddy4zzbhZA" },
+  { name: "Kia, Dammam, King Saud", lat: 26.44250663669213, lng: 50.114706233955204, url: "https://maps.app.goo.gl/uR71QWhkcPv6mjTj9" },
+  { name: "Kia, Hafar Al Batin", lat: 28.39764655204363, lng: 45.964197761433425, url: "https://maps.app.goo.gl/UitxifDsrFqBUi7bA" },
+  { name: "Kia, Jubail", lat: 26.997602367573815, lng: 49.64415408148247, url: "https://maps.app.goo.gl/KqDmMF1M7PoRt42Z7" },
+  { name: "Kia, Khafji", lat: 28.431154724913192, lng: 48.4714125333032, url: "https://maps.app.goo.gl/Y1FxZGPBMAq8KEd7A" },
+  { name: "Kia, Khobar, Al Aqrabiyah", lat: 26.28457246478655, lng: 50.19674403199724, url: "https://maps.app.goo.gl/E49r9cXdPmEFfGKP6" },
+  { name: "Kia, Qatif", lat: 26.541153232271384, lng: 50.022315647214775, url: "https://maps.app.goo.gl/Cs7C41igt7GY4MJj6" },
+  { name: "Kia, Riyadh, Al Muruj", lat: 24.76774617038448, lng: 46.66469197125627, url: "https://maps.app.goo.gl/MXF4EeZV4LagizFq9" },
+  { name: "Kia, Riyadh, Khurais", lat: 24.752078890345103, lng: 46.82352229285217, url: "https://maps.app.goo.gl/fZ9zFj98k92byWvo7" },
+  { name: "Kia, Riyadh, Al Rabi", lat: 24.787082010196627, lng: 46.64711728912638, url: "https://maps.app.goo.gl/WJvqLmgUYCKi4ZtU6" },
+  { name: "Kia, Riyadh, Al Qadisiyyah", lat: 24.826648715008652, lng: 46.80508463557037, url: "https://maps.app.goo.gl/n235Z37GCFMffHBR6" },
+  { name: "Kia, Riyadh, Sulimaniyah", lat: 24.709073688297185, lng: 46.708437049719606, url: "https://maps.app.goo.gl/v1twVUWzcv7nDsPq6" },
+  { name: "Kia, Riyadh, Badeea", lat: 24.567668056238862, lng: 46.61939640544682, url: "https://maps.app.goo.gl/iWqWdUPPfiZWu4Cv8" },
+  { name: "Kia, Riyadh, Qurtubah", lat: 24.822786303236864, lng: 46.72931235029428, url: "https://maps.app.goo.gl/bXkNKSc3EfY4rKsg6" },
+  { name: "Kia, Hail", lat: 27.47540149634976, lng: 41.729279739413315, url: "https://maps.app.goo.gl/XuCdYmuHFxkbvg8y9" },
+    ];
+
+    // ─── Map init with dark CartoDB tiles ─────────────────────────
+    const map = L.map('map', {
+      zoomControl: false,
+      scrollWheelZoom: true
+    }).setView([24.582455338703678, 44.93694905954953], 10);
+
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+    // Dark map tiles — much better on dark UI than the default OSM light style
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>',
+      subdomains: 'abcd',
+      maxZoom: 19
+    }).addTo(map);
+
+    // ─── Custom gold pin marker ───────────────────────────────────
+    // Replace Leaflet's default blue pin with a pulsing gold dot
+    const goldPinIcon = L.divIcon({
+      className: '',        // blank class so Leaflet doesn't add its own styles
+      html: '<div class="store-pin-dot"></div>',
+      iconSize: [14, 14],
+      iconAnchor: [7, 7],
+      popupAnchor: [0, -12]
+    });
+
+    // ─── Viewport height fix (mobile browser chrome) ──────────────
+    function updateViewportVars() {
+      const vh = window.innerHeight * 0.01;
+      document.documentElement.style.setProperty('--vh', `${vh}px`);
+
+      const topbarEl = document.querySelector('.topbar');
+      if (topbarEl) {
+        const topbarHeight = Math.ceil(topbarEl.getBoundingClientRect().height);
+        document.documentElement.style.setProperty('--topbarH', `${topbarHeight}px`);
+      }
+    }
+
+    updateViewportVars();
+    window.addEventListener('resize', updateViewportVars);
+    window.addEventListener('orientationchange', updateViewportVars);
+
+    // ─── Marker cluster ───────────────────────────────────────────
+    const markerCluster = L.markerClusterGroup({
+      showCoverageOnHover: false,
+      spiderfyOnMaxZoom: true,
+      maxClusterRadius: 50
+    });
+
+    const allStoresBounds = L.latLngBounds([]);
+
+    // DOM refs
+    const panelEl        = document.getElementById('panel');
+    const storeListEl    = document.getElementById('storeList');
+    const storeCountEl   = document.getElementById('storeCount');
+    const topbarSearchEl = document.getElementById('topbarSearch');
+    const panelSearchEl  = document.getElementById('panelSearch');
+    const toastEl        = document.getElementById('toast');
+
+    let userLocationMarker = null;
+
+    // ─── Toast helpers ────────────────────────────────────────────
+    function showToast(message) {
+      toastEl.innerHTML = message;
+      toastEl.classList.remove('has-link');
+      toastEl.classList.add('show');
+      clearTimeout(showToast._timer);
+      showToast._timer = setTimeout(() => toastEl.classList.remove('show'), 2400);
+    }
+
+    // Nearest-store result toast — stays longer and has a tappable link.
+    // We can't use window.open() inside a geolocation callback because mobile
+    // browsers block popups opened outside a direct user gesture.
+    function showNearestStoreToast(storeName, distanceKm, directionsUrl) {
+      toastEl.innerHTML = `
+        Nearest: <strong>${storeName}</strong> (~${distanceKm.toFixed(1)} km)
+        <a href="${directionsUrl}" target="_blank" rel="noopener">Open directions ↗</a>
+      `;
+      toastEl.classList.add('show', 'has-link');
+      clearTimeout(showToast._timer);
+      showToast._timer = setTimeout(() => {
+        toastEl.classList.remove('show', 'has-link');
+      }, 8000);
+    }
+
+    // ─── Popup content builder ────────────────────────────────────
+    function buildPopupHtml(store, distanceKm = null) {
+      const distanceHtml = distanceKm != null
+        ? `<div class="popup-distance">~ ${distanceKm.toFixed(2)} km away</div>`
+        : '';
+
+      return `
+        <div>
+          <div class="popup-title">${store.name}</div>
+          ${distanceHtml}
+          <div class="popup-actions">
+            <a class="popup-link" href="${store.url}" target="_blank" rel="noopener">Open in Maps ↗</a>
+            <a class="popup-link" href="#" data-focus-store="${encodeURIComponent(store.name)}">Focus on map</a>
+          </div>
+        </div>
+      `;
+    }
+
+    // ─── Build markers ────────────────────────────────────────────
+    const markerByStoreName = new Map();
+
+    stores.forEach(store => {
+      const latlng = L.latLng(store.lat, store.lng);
+      allStoresBounds.extend(latlng);
+
+      const marker = L.marker(latlng, { icon: goldPinIcon });
+      marker.bindPopup(buildPopupHtml(store));
+
+      marker.on('popupopen', (e) => {
+        const popupNode = e.popup.getElement();
+        if (!popupNode) return;
+
+        const focusLink = popupNode.querySelector('[data-focus-store]');
+        if (focusLink) {
+          focusLink.onclick = (ev) => {
+            ev.preventDefault();
+            const storeName = decodeURIComponent(focusLink.getAttribute('data-focus-store'));
+            focusStoreOnMap(storeName);
+          };
+        }
+      });
+
+      markerByStoreName.set(store.name, marker);
+      markerCluster.addLayer(marker);
+    });
+
+    map.addLayer(markerCluster);
+    map.fitBounds(allStoresBounds.pad(0.12));
+
+    // ─── Store list renderer ──────────────────────────────────────
+    // Extracts the area name from the full store name for the badge.
+    // "UNION COOP MOTOR CITY" → "MOTOR CITY"
+    function extractAreaName(fullStoreName) {
+      return fullStoreName.replace(/^KIA\s*/i, '').trim();
+    }
+
+    function renderStoreList(storeSubset) {
+      storeListEl.innerHTML = '';
+      storeCountEl.textContent = `${storeSubset.length} location${storeSubset.length === 1 ? '' : 's'}`;
+
+      storeSubset.forEach((store, index) => {
+        const areaName = extractAreaName(store.name);
+        const cardEl = document.createElement('div');
+        cardEl.className = 'store-card';
+        // Stagger the entrance animation so cards cascade in one by one
+        cardEl.style.animationDelay = `${index * 35}ms`;
+
+        cardEl.innerHTML = `
+          <span class="store-card-name">${store.name}</span>
+          <div class="store-card-meta">
+            <a class="directions-link"
+               href="${store.url}"
+               target="_blank"
+               rel="noopener"
+               title="Open in Google Maps">
+              ↗ Directions
+            </a>
+            <span class="area-tag">${areaName}</span>
+          </div>
+        `;
+
+        // Card body click → zoom to store on map
+        // Directions link → handled by the <a> tag, doesn't trigger card click
+        cardEl.addEventListener('click', (e) => {
+          if (e.target.closest('.directions-link')) return;
+          focusStoreOnMap(store.name);
+        });
+
+        storeListEl.appendChild(cardEl);
+      });
+    }
+
+    function focusStoreOnMap(storeName) {
+      const marker = markerByStoreName.get(storeName);
+      if (!marker) return;
+      map.setView(marker.getLatLng(), 14, { animate: true });
+      marker.openPopup();
+    }
+
+    renderStoreList(stores);
+
+    // ─── Search ───────────────────────────────────────────────────
+    function normalizeText(text) {
+      return (text || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    }
+
+    function applySearch(queryText) {
+      const query = normalizeText(queryText);
+      if (!query) {
+        renderStoreList(stores);
+        return;
+      }
+      const matches = stores.filter(store => normalizeText(store.name).includes(query));
+      renderStoreList(matches);
+    }
+
+    // Topbar and panel search inputs stay in sync
+    topbarSearchEl?.addEventListener('input', () => {
+      if (panelSearchEl) panelSearchEl.value = topbarSearchEl.value;
+      applySearch(topbarSearchEl.value);
+    });
+
+    panelSearchEl?.addEventListener('input', () => {
+      if (topbarSearchEl) topbarSearchEl.value = panelSearchEl.value;
+      applySearch(panelSearchEl.value);
+    });
+
+    // ─── Geolocation helpers ──────────────────────────────────────
+    function requestUserLocation(onSuccess) {
+      if (!navigator.geolocation) {
+        showToast('Geolocation not supported in this browser.');
+        return;
+      }
+      showToast('Getting your location…');
+      navigator.geolocation.getCurrentPosition(
+        onSuccess,
+        (err) => showToast('Location error: ' + (err.message || 'unknown')),
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    }
+
+    function placeUserLocationMarker(lat, lng) {
+      const latlng = L.latLng(lat, lng);
+
+      if (userLocationMarker) {
+        userLocationMarker.setLatLng(latlng);
+      } else {
+        userLocationMarker = L.circleMarker(latlng, {
+          radius: 8,
+          color: '#f59f00',
+          fillColor: '#f59f00',
+          weight: 2,
+          opacity: 1,
+          fillOpacity: 0.4
+        }).addTo(map).bindPopup('<b style="color:#f59f00">You are here</b>');
+      }
+
+      map.setView(latlng, Math.max(map.getZoom(), 13), { animate: true });
+    }
+
+    // Haversine: great-circle distance between two GPS coordinates
+    function haversineDistanceKm(lat1, lng1, lat2, lng2) {
+      const EARTH_RADIUS_KM = 6371;
+      const toRad = (deg) => deg * (Math.PI / 180);
+
+      const dLat = toRad(lat2 - lat1);
+      const dLng = toRad(lng2 - lng1);
+
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+
+      return EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    function findNearestStore(userLat, userLng) {
+      let nearestStore = null;
+      let minDistanceKm = Infinity;
+
+      stores.forEach(store => {
+        const km = haversineDistanceKm(userLat, userLng, store.lat, store.lng);
+        if (km < minDistanceKm) {
+          minDistanceKm = km;
+          nearestStore = store;
+        }
+      });
+
+      return { store: nearestStore, distanceKm: minDistanceKm };
+    }
+
+    // ─── Button: Locate me ────────────────────────────────────────
+    document.getElementById('btnLocate').addEventListener('click', () => {
+      requestUserLocation((pos) => {
+        placeUserLocationMarker(pos.coords.latitude, pos.coords.longitude);
+        showToast('Location updated.');
+      });
+    });
+
+    // ─── Button: Find nearest ─────────────────────────────────────
+    // No window.open() here — mobile browsers block popups from async callbacks.
+    // Instead, we surface a tappable link in the toast.
+    document.getElementById('btnNearest').addEventListener('click', () => {
+      requestUserLocation((pos) => {
+        const { latitude, longitude } = pos.coords;
+        placeUserLocationMarker(latitude, longitude);
+
+        const { store, distanceKm } = findNearestStore(latitude, longitude);
+        if (!store) return;
+
+        const marker = markerByStoreName.get(store.name);
+        if (marker) {
+          marker.setPopupContent(buildPopupHtml(store, distanceKm));
+          focusStoreOnMap(store.name);
+        }
+
+        showNearestStoreToast(store.name, distanceKm, store.url);
+      });
+    });
+
+    // ─── Panel collapse / expand ──────────────────────────────────
+    const btnCollapseEl = document.getElementById('btnCollapse');
+    const grabHandleEl  = document.getElementById('grabHandle');
+
+    function setCollapsedState(shouldCollapse) {
+      panelEl.classList.toggle('is-collapsed', shouldCollapse);
+      if (btnCollapseEl) {
+        btnCollapseEl.textContent = shouldCollapse ? '▴' : '▾';
+      }
+    }
+
+    // Mobile: start collapsed so the map is visible on load
+    if (window.innerWidth <= 760) setCollapsedState(true);
+
+    btnCollapseEl?.addEventListener('click', () => {
+      setCollapsedState(!panelEl.classList.contains('is-collapsed'));
+    });
+
+    grabHandleEl?.addEventListener('click', () => {
+      setCollapsedState(!panelEl.classList.contains('is-collapsed'));
+    });
+
+    grabHandleEl?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        setCollapsedState(!panelEl.classList.contains('is-collapsed'));
+      }
+    });
+
+    // ─── Button: Toggle panel ─────────────────────────────────────
+    document.getElementById('btnTogglePanel').addEventListener('click', () => {
+      const isHidden = panelEl.style.display === 'none';
+      panelEl.style.display = isHidden ? '' : 'none';
+    });
+
+    // ─── Button: Fit all stores in view ──────────────────────────
+    document.getElementById('btnFit').addEventListener('click', () => {
+      map.fitBounds(allStoresBounds.pad(0.12));
+    });
+
+    // ─── Button: Reset ────────────────────────────────────────────
+    document.getElementById('btnReset').addEventListener('click', () => {
+      if (topbarSearchEl) topbarSearchEl.value = '';
+      if (panelSearchEl)  panelSearchEl.value  = '';
+      renderStoreList(stores);
+      map.fitBounds(allStoresBounds.pad(0.12));
+      showToast('Reset done.');
+    });
+
+    // ─── Welcome message (desktop only) ──────────────────────────
+    if (window.innerWidth > 760) {
+      L.popup({ closeButton: true, autoClose: true })
+        .setLatLng(allStoresBounds.getCenter())
+        .setContent(`
+          <div style="max-width:240px;">
+            <div class="popup-title">Welcome 👋</div>
+            <div class="popup-distance" style="margin-bottom:0; line-height:1.5;">
+              Hit <strong style="color:var(--gold)">Nearest</strong> to find the closest
+              store, or browse the list and tap a card.
+            </div>
+          </div>
+        `)
+        .openOn(map);
+    }
+  </script>
+</body>
+</html>
