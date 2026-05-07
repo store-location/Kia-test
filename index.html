@@ -611,16 +611,40 @@
       /* Topbar search hides on mobile — it's in the panel header now */
       .topbar-search { display: none; }
 
-      .actions { gap: 6px; }
+      .actions { gap: 6px; margin-left: auto; }
       .btn { padding: 8px 10px; font-size: 12px; }
       .btn-icon { width: 36px; height: 36px; }
 
-      @media (max-width: 420px) {
+      /* Hide text labels earlier on mobile so Locate/Nearest do not crowd the header */
+      @media (max-width: 520px) {
         .btn-label { display: none; }
+        .btn { padding: 8px 9px; }
       }
 
       .leaflet-top.leaflet-left {
         top: calc(var(--topbarH) + 10px);
+      }
+
+      /* Keep Leaflet zoom/attribution away from the bottom sheet */
+      .leaflet-bottom.leaflet-right {
+        bottom: calc(96px + env(safe-area-inset-bottom)) !important;
+        right: 8px !important;
+      }
+
+      body.mobile-sheet-open .leaflet-bottom.leaflet-right {
+        bottom: calc(48vh + 26px + env(safe-area-inset-bottom)) !important;
+      }
+
+      .leaflet-control-attribution {
+        font-size: 9px !important;
+        max-width: 65vw;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .leaflet-popup-content-wrapper {
+        max-width: calc(100vw - 46px);
       }
 
       /* Bottom sheet */
@@ -843,6 +867,44 @@
 
     let userLocationMarker = null;
 
+    // ─── Responsive map helpers ───────────────────────────────────
+    function isMobileView() {
+      return window.innerWidth <= 760;
+    }
+
+    function getMapFitOptions() {
+      const topbarH = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--topbarH'), 10) || 64;
+      const panelVisible = panelEl && panelEl.style.display !== 'none';
+      const panelH = panelVisible ? Math.ceil(panelEl.getBoundingClientRect().height) : 0;
+
+      if (!isMobileView()) {
+        return {
+          paddingTopLeft: [24, 24],
+          paddingBottomRight: [410, 40],
+          maxZoom: 9
+        };
+      }
+
+      return {
+        paddingTopLeft: [22, topbarH + 20],
+        paddingBottomRight: [22, Math.max(110, panelH + 34)],
+        maxZoom: 7
+      };
+    }
+
+    function fitStoresView(animate = true) {
+      if (!allStoresBounds.isValid()) return;
+      map.invalidateSize();
+      map.fitBounds(allStoresBounds.pad(0.12), {
+        ...getMapFitOptions(),
+        animate
+      });
+    }
+
+    function refreshMapLayout(delay = 120) {
+      window.setTimeout(() => map.invalidateSize(), delay);
+    }
+
     // ─── Toast helpers ────────────────────────────────────────────
     function showToast(message) {
       toastEl.innerHTML = message;
@@ -914,7 +976,7 @@
     });
 
     map.addLayer(markerCluster);
-    map.fitBounds(allStoresBounds.pad(0.12));
+    // Initial fit happens after the mobile sheet state is applied.
 
     // ─── Store list renderer ──────────────────────────────────────
     // Extracts the area name from the full store name for the badge.
@@ -1092,13 +1154,26 @@
 
     function setCollapsedState(shouldCollapse) {
       panelEl.classList.toggle('is-collapsed', shouldCollapse);
+
+      if (isMobileView()) {
+        document.body.classList.toggle('mobile-sheet-collapsed', shouldCollapse);
+        document.body.classList.toggle('mobile-sheet-open', !shouldCollapse);
+      } else {
+        document.body.classList.remove('mobile-sheet-collapsed', 'mobile-sheet-open');
+      }
+
       if (btnCollapseEl) {
         btnCollapseEl.textContent = shouldCollapse ? '▴' : '▾';
       }
+
+      refreshMapLayout(180);
     }
 
     // Mobile: start collapsed so the map is visible on load
     if (window.innerWidth <= 760) setCollapsedState(true);
+
+    // Fit after CSS, fonts, topbar height and mobile sheet state are stable.
+    window.setTimeout(() => fitStoresView(false), 180);
 
     btnCollapseEl?.addEventListener('click', () => {
       setCollapsedState(!panelEl.classList.contains('is-collapsed'));
@@ -1119,11 +1194,12 @@
     document.getElementById('btnTogglePanel').addEventListener('click', () => {
       const isHidden = panelEl.style.display === 'none';
       panelEl.style.display = isHidden ? '' : 'none';
+      window.setTimeout(() => fitStoresView(true), 120);
     });
 
     // ─── Button: Fit all stores in view ──────────────────────────
     document.getElementById('btnFit').addEventListener('click', () => {
-      map.fitBounds(allStoresBounds.pad(0.12));
+      fitStoresView(true);
     });
 
     // ─── Button: Reset ────────────────────────────────────────────
@@ -1131,16 +1207,21 @@
       if (topbarSearchEl) topbarSearchEl.value = '';
       if (panelSearchEl)  panelSearchEl.value  = '';
       renderStoreList(stores);
-      map.fitBounds(allStoresBounds.pad(0.12));
+      fitStoresView(true);
       showToast('Reset done.');
     });
 
-    // ─── Welcome message (desktop only) ──────────────────────────
-    if (window.innerWidth > 760) {
-      L.popup({ closeButton: true, autoClose: true })
-        .setLatLng(allStoresBounds.getCenter())
+    // ─── Welcome message ─────────────────────────────────────────
+    function showWelcomeMessage() {
+      const center = allStoresBounds.getCenter();
+      const popupOptions = isMobileView()
+        ? { closeButton: true, autoClose: true, autoPan: true, keepInView: true, maxWidth: 260, autoPanPaddingTopLeft: [16, 90], autoPanPaddingBottomRight: [16, 130] }
+        : { closeButton: true, autoClose: true, autoPan: true, keepInView: true, maxWidth: 280 };
+
+      L.popup(popupOptions)
+        .setLatLng(center)
         .setContent(`
-          <div style="max-width:240px;">
+          <div style="max-width:${isMobileView() ? '220px' : '240px'};">
             <div class="popup-title">Welcome 👋</div>
             <div class="popup-distance" style="margin-bottom:0; line-height:1.5;">
               Hit <strong style="color:var(--gold)">Nearest</strong> to find the closest
@@ -1150,6 +1231,8 @@
         `)
         .openOn(map);
     }
+
+    window.setTimeout(showWelcomeMessage, 350);
   </script>
 </body>
 </html>
