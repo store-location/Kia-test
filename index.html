@@ -546,6 +546,35 @@
       display: flex;
       gap: 10px;
       flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .store-popup-card .directions-link {
+      width: fit-content;
+      margin-top: 2px;
+    }
+
+    /* Leaflet has a stronger default link color inside popups, so force
+       the popup Directions pill to match the store-list Directions pill exactly. */
+    .leaflet-container .store-popup-card .directions-link,
+    .leaflet-container .store-popup-card .directions-link:visited {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: var(--gold-dim) !important;
+      border: 1px solid var(--gold-border) !important;
+      color: var(--gold) !important;
+      font-weight: 700;
+      font-size: 11px;
+      text-decoration: none !important;
+    }
+
+    .leaflet-container .store-popup-card .directions-link:hover {
+      background: rgba(245,159,0,0.25) !important;
+      color: var(--gold) !important;
+      text-decoration: none !important;
     }
 
     .popup-link {
@@ -971,9 +1000,18 @@
         : '';
 
       return `
-        <div>
+        <div class="store-popup-card">
           <div class="popup-title">${store.name}</div>
           ${distanceHtml}
+          <div class="popup-actions">
+            <a class="directions-link popup-direction-link"
+               href="${store.url}"
+               target="_blank"
+               rel="noopener"
+               title="Open in Google Maps">
+              ↗ Directions
+            </a>
+          </div>
         </div>
       `;
     }
@@ -1046,14 +1084,20 @@
       const latlng = marker.getLatLng();
       const panelOpen = panelEl && panelEl.style.display !== 'none' && !panelEl.classList.contains('is-collapsed');
 
+      function openStorePopup() {
+        markerCluster.zoomToShowLayer(marker, () => {
+          marker.openPopup();
+        });
+      }
+
       if (isMobileView() && panelOpen) {
         const panelH = Math.ceil(panelEl.getBoundingClientRect().height) || 260;
         const verticalOffset = -Math.min(180, Math.max(90, panelH * 0.34));
         setViewWithOffset(latlng, 14, [0, verticalOffset]);
-        window.setTimeout(() => marker.openPopup(), 260);
+        window.setTimeout(openStorePopup, 320);
       } else {
         map.setView(latlng, 14, { animate: true });
-        window.setTimeout(() => marker.openPopup(), isMobileView() ? 220 : 120);
+        window.setTimeout(openStorePopup, isMobileView() ? 280 : 160);
       }
 
       highlightStoreCard(storeName);
