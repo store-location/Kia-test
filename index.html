@@ -615,10 +615,18 @@
       .btn { padding: 8px 10px; font-size: 12px; }
       .btn-icon { width: 36px; height: 36px; }
 
-      /* Hide text labels earlier on mobile so Locate/Nearest do not crowd the header */
+      /* Mobile clarity: hide secondary labels, but keep Nearest readable */
       @media (max-width: 520px) {
         .btn-label { display: none; }
+        #btnNearest .nearest-label { display: inline; }
+        #btnNearest { padding: 8px 11px; min-width: 86px; justify-content: center; }
         .btn { padding: 8px 9px; }
+      }
+
+      /* Extra-small screens: still keep Nearest clear, just slightly tighter */
+      @media (max-width: 360px) {
+        #btnNearest { min-width: 78px; padding: 8px 9px; }
+        #btnNearest .nearest-label { font-size: 11px; }
       }
 
       .leaflet-top.leaflet-left {
@@ -728,7 +736,7 @@
           ◎ <span class="btn-label">Locate</span>
         </button>
         <button class="btn btn-primary" id="btnNearest" title="Find nearest store">
-          ↗ <span class="btn-label">Nearest</span>
+          ↗ <span class="btn-label nearest-label">Nearest</span>
         </button>
       </div>
     </div>
